@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Peer to Peer Video + Screen</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    video { width: 320px; margin: 5px; border: 2px solid #ccc; }
+    textarea { width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Peer to Peer Video + Screen Share</h1>
+  <hr>
+
+  <h3>Local Streams</h3>
+  <video id="localVideo" autoplay playsinline muted></video>
+  <video id="localScreen" autoplay playsinline muted></video>
+
+  <h3>Remote Streams</h3>
+  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="remoteScreen" autoplay playsinline></video>
+
+  <hr>
+  <div>
+    <p>
+      <b>Host (Offerer)</b><br>
+      <button id="createOffer">Create Offer</button><br>
+      <textarea id="localOffer" rows="6" placeholder="local offer"></textarea><br>
+      Paste remote answer here:<br>
+      <textarea id="remoteAnswer" rows="6" placeholder="remote answer"></textarea><br>
+      <button id="acceptAnswer">Accept Answer</button>
+    </p>
+    <hr>
+    <p>
+      <b>Remote (Answerer)</b><br>
+      Paste host's offer here:<br>
+      <textarea id="remoteOffer" rows="6" placeholder="remote offer"></textarea><br>
+      <button id="acceptOffer">Accept Offer</button><br>
+      Copy your answer and send back:<br>
+      <textarea id="localAnswer" rows="6" placeholder="local answer"></textarea>
+    </p>
+  </div>
+
+  <script>
+    const servers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+    const peerConnection = new RTCPeerConnection(servers);
+
+    const localVideo = document.getElementById("localVideo");
+    const localScreen = document.getElementById("localScreen");
+    const remoteVideo = document.getElementById("remoteVideo");
+    const remoteScreen = document.getElementById("remoteScreen");
+
+    const localOffer = document.getElementById("localOffer");
+    const remoteOffer = document.getElementById("remoteOffer");
+    const createOfferBtn = document.getElementById("createOffer");
+    const acceptOfferBtn = document.getElementById("acceptOffer");
+
+    const localAnswer = document.getElementById("localAnswer");
+    const remoteAnswer = document.getElementById("remoteAnswer");
+    const acceptAnswerBtn = document.getElementById("acceptAnswer");
+
+    createOfferBtn.onclick = offerCreate;
+    acceptOfferBtn.onclick = offerAccept;
+    acceptAnswerBtn.onclick = answerAccept;
+
+    // ICE handling
+    peerConnection.onicecandidate = (event) => {
+      if (!event.candidate) {
+        const desc = peerConnection.localDescription;
+        if (desc.type === "offer") {
+          localOffer.value = JSON.stringify(desc);
+        } else if (desc.type === "answer") {
+          localAnswer.value = JSON.stringify(desc);
+        }
+      }
+    };
+
+    // Remote tracks handling
+    peerConnection.ontrack = (event) => {
+      const stream = event.streams[0];
+      if (stream.getAudioTracks().length > 0) {
+        // Stream with audio = remote camera
+        if (!remoteVideo.srcObject) {
+          remoteVideo.srcObject = stream;
+          console.log("Remote camera stream set");
+        }
+      } else {
+        // Stream without audio = remote screen
+        if (!remoteScreen.srcObject) {
+          remoteScreen.srcObject = stream;
+          console.log("Remote screen stream set");
+        }
+      }
+    };
+
+    // Get local cam+mic and screen
+    async function initMedia() {
+      try {
+        const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = camStream;
+        camStream.getTracks().forEach(track => peerConnection.addTrack(track, camStream));
+
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        localScreen.srcObject = screenStream;
+        screenStream.getTracks().forEach(track => peerConnection.addTrack(track, screenStream));
+      } catch (err) {
+        console.error("Media error:", err);
+      }
+    }
+    initMedia();
+
+    // Host creates offer
+    async function offerCreate() {
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        localOffer.value = JSON.stringify(offer);
+        console.log("Offer created");
+      } catch (err) {
+        console.error("Offer creation failed:", err);
+      }
+    }
+
+    // Remote accepts offer
+    async function offerAccept() {
+      try {
+        const offer = JSON.parse(remoteOffer.value);
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log("Remote offer accepted");
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        localAnswer.value = JSON.stringify(answer);
+      } catch (err) {
+        console.error("OfferAccept error:", err);
+      }
+    }
+
+    // Host accepts answer
+    async function answerAccept() {
+      try {
+        const answer = JSON.parse(remoteAnswer.value);
+        if (peerConnection.signalingState === "have-local-offer") {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+          console.log("Answer accepted");
+        } else {
+          console.warn("Skipping setRemoteDescription, state =", peerConnection.signalingState);
+        }
+      } catch (err) {
+        console.error("AnswerAccept error:", err);
+      }
+    }
+  </script>
+</body>
+</html>
